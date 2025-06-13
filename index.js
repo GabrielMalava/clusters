@@ -1,466 +1,510 @@
-  // Estrutura principal do sistema de clusterização
-        class ClusteringSystem {
-            constructor() {
-                this.clusters = [];
-                this.nextElementId = 1;
-                this.distanceThreshold = 2.0;
-                this.kDistantElements = 2;
-                this.categoricalMappings = new Map();
-                this.nextCategoryValue = 1;
-                
+class ClusteringSystem {
+  constructor() {
+    this.clusters = [];
+    this.nextElementId = 1;
+    this.distanceThreshold = 2.0;
+    this.kDistantElements = 2;
+    this.categoricalMappings = new Map();
+    this.nextCategoryValue = 1;
 
-                this.initializeClusters();
-                this.log('Sistema inicializado com 2 clusters vazios', 'info');
+    this.initializeClusters();
+    this.log("Sistema inicializado com 2 clusters vazios", "info");
+  }
+
+  initializeClusters() {
+    this.clusters = [new Cluster(0), new Cluster(1)];
+  }
+
+  addElement(data, isNumeric = true, originalData = null) {
+    const element = new Element(
+      this.nextElementId++,
+      data,
+      isNumeric,
+      originalData
+    );
+
+    if (this.clusters.every((cluster) => cluster.elements.length === 0)) {
+      this.clusters[0].addElement(element);
+      this.log(
+        `Elemento ${element.id} adicionado ao primeiro cluster`,
+        "success"
+      );
+    } else if (
+      this.clusters.filter((cluster) => cluster.elements.length > 0).length ===
+      1
+    ) {
+      const emptyCluster = this.clusters.find(
+        (cluster) => cluster.elements.length === 0
+      );
+      emptyCluster.addElement(element);
+      this.log(
+        `Elemento ${element.id} adicionado ao segundo cluster`,
+        "success"
+      );
+    } else {
+      let minDistance = Infinity;
+      let targetCluster = null;
+
+      for (const cluster of this.clusters) {
+        if (cluster.elements.length > 0) {
+          const distance = this.calculateDistance(
+            element.data,
+            cluster.getCentroid()
+          );
+          if (distance < minDistance) {
+            minDistance = distance;
+            targetCluster = cluster;
+          }
+        }
+      }
+
+      targetCluster.addElement(element);
+      this.log(
+        `Elemento ${element.id} atribuído ao cluster ${
+          targetCluster.id
+        } (distância: ${minDistance.toFixed(2)})`,
+        "success"
+      );
+    }
+
+    this.updateDisplay();
+    this.checkForReorganization();
+  }
+
+  calculateDistance(point1, point2) {
+    if (point1.length !== point2.length) {
+      throw new Error("Pontos devem ter a mesma dimensionalidade");
+    }
+
+    let sum = 0;
+    for (let i = 0; i < point1.length; i++) {
+      sum += Math.pow(point1[i] - point2[i], 2);
+    }
+    return Math.sqrt(sum);
+  }
+
+  recalculateAllCentroids() {
+    for (const cluster of this.clusters) {
+      if (cluster.elements.length > 0) {
+        cluster.updateCentroid();
+      }
+    }
+    this.log("Centróides recalculados para todos os clusters", "info");
+  }
+
+  checkForReorganization() {
+    const distantElements = this.findDistantElements();
+
+    if (distantElements.length >= this.kDistantElements) {
+      this.createNewCluster(distantElements);
+    }
+  }
+
+  findDistantElements() {
+    const distantElements = [];
+
+    for (const cluster of this.clusters) {
+      if (cluster.elements.length <= 1) continue;
+
+      const centroid = cluster.getCentroid();
+      const elementsWithDistance = cluster.elements.map((element) => ({
+        element,
+        cluster,
+        distance: this.calculateDistance(element.data, centroid),
+      }));
+
+      const distant = elementsWithDistance
+        .filter((item) => item.distance > this.distanceThreshold)
+        .sort((a, b) => b.distance - a.distance);
+
+      distantElements.push(...distant);
+    }
+
+    return distantElements.slice(0, this.kDistantElements);
+  }
+
+  createNewCluster(distantElements) {
+    if (distantElements.length === 0) return;
+
+    const newCluster = new Cluster(this.clusters.length);
+
+    for (const item of distantElements) {
+      item.cluster.removeElement(item.element);
+      newCluster.addElement(item.element);
+    }
+
+    this.clusters.push(newCluster);
+    this.log(
+      `Novo cluster ${newCluster.id} criado com ${distantElements.length} elementos distantes`,
+      "warning"
+    );
+
+    this.recalculateAllCentroids();
+    this.updateDisplay();
+  }
+
+  reorganizeClusters() {
+    let changes = true;
+    let iterations = 0;
+    const maxIterations = 100;
+
+    while (changes && iterations < maxIterations) {
+      changes = false;
+      iterations++;
+
+      for (const cluster of this.clusters) {
+        const elementsToMove = [];
+
+        for (const element of [...cluster.elements]) {
+          let minDistance = Infinity;
+          let targetCluster = cluster;
+
+          for (const otherCluster of this.clusters) {
+            if (otherCluster.elements.length === 0) continue;
+
+            const distance = this.calculateDistance(
+              element.data,
+              otherCluster.getCentroid()
+            );
+            if (distance < minDistance) {
+              minDistance = distance;
+              targetCluster = otherCluster;
             }
+          }
 
-           
-            initializeClusters() { /*Estrutura de dados inicial*/
-                this.clusters = [
-                    new Cluster(0),
-                    new Cluster(1)
-                ];
-            }
+          if (targetCluster !== cluster) {
+            elementsToMove.push({ element, targetCluster });
+            changes = true;
+          }
+        }
 
-            // Atribuição de elementos e cálculo de distâncias
-            addElement(data, isNumeric = true, originalData = null) {
-                const element = new Element(this.nextElementId++, data, isNumeric, originalData);
-                
-                if (this.clusters.every(cluster => cluster.elements.length === 0)) {
-                 
-                    this.clusters[0].addElement(element);
-                    this.log(`Elemento ${element.id} adicionado ao primeiro cluster`, 'success');
-                } else if (this.clusters.filter(cluster => cluster.elements.length > 0).length === 1) {
-                    
-                    const emptyCluster = this.clusters.find(cluster => cluster.elements.length === 0);
-                    emptyCluster.addElement(element);
-                    this.log(`Elemento ${element.id} adicionado ao segundo cluster`, 'success');
-                } else {
-                    // Elementos subsequentes: calcular distância para cada cluster
-                    let minDistance = Infinity;
-                    let targetCluster = null;
+        for (const move of elementsToMove) {
+          cluster.removeElement(move.element);
+          move.targetCluster.addElement(move.element);
+        }
+      }
 
-                    for (const cluster of this.clusters) {
-                        if (cluster.elements.length > 0) {
-                            const distance = this.calculateDistance(element.data, cluster.getCentroid());
-                            if (distance < minDistance) {
-                                minDistance = distance;
-                                targetCluster = cluster;
-                            }
-                        }
-                    }
+      this.recalculateAllCentroids();
+    }
 
-                    targetCluster.addElement(element);
-                    this.log(`Elemento ${element.id} atribuído ao cluster ${targetCluster.id} (distância: ${minDistance.toFixed(2)})`, 'success');
-                }
+    this.log(`Reorganização concluída em ${iterations} iterações`, "success");
+    this.updateDisplay();
+  }
 
-                this.updateDisplay();
-                this.checkForReorganization();
-            }
+  convertCategoricalToNumeric(categoricalData) {
+    const numericData = [];
 
-            // Cálculo da distância euclidiana
-            calculateDistance(point1, point2) {
-                if (point1.length !== point2.length) {
-                    throw new Error('Pontos devem ter a mesma dimensionalidade');
-                }
-                
-                let sum = 0;
-                for (let i = 0; i < point1.length; i++) {
-                    sum += Math.pow(point1[i] - point2[i], 2);
-                }
-                return Math.sqrt(sum);
-            }
+    for (const category of categoricalData) {
+      if (!this.categoricalMappings.has(category)) {
+        this.categoricalMappings.set(category, this.nextCategoryValue++);
+      }
+      numericData.push(this.categoricalMappings.get(category));
+    }
 
-            // Recálculo do centróide e reorganização
-            recalculateAllCentroids() {
-                for (const cluster of this.clusters) {
-                    if (cluster.elements.length > 0) {
-                        cluster.updateCentroid();
-                    }
-                }
-                this.log('Centróides recalculados para todos os clusters', 'info');
-            }
+    return numericData;
+  }
 
-            // Análise de dispersão e criação de novos clusters
-            checkForReorganization() {
-                const distantElements = this.findDistantElements();
-                
-                if (distantElements.length >= this.kDistantElements) {
-                    this.createNewCluster(distantElements);
-                }
-            }
+  prepareForKNN() {
+    const knnData = [];
 
-            findDistantElements() {
-                const distantElements = [];
+    for (const cluster of this.clusters) {
+      for (const element of cluster.elements) {
+        knnData.push({
+          id: element.id,
+          features: element.data,
+          cluster: cluster.id,
+          isNumeric: element.isNumeric,
+          originalData: element.originalData,
+        });
+      }
+    }
 
-                for (const cluster of this.clusters) {
-                    if (cluster.elements.length <= 1) continue;
+    this.log(
+      `Dados preparados para KNN: ${knnData.length} elementos`,
+      "success"
+    );
+    console.log("Dados KNN:", knnData);
+    console.log(
+      "Mapeamentos categóricos:",
+      Object.fromEntries(this.categoricalMappings)
+    );
 
-                    const centroid = cluster.getCentroid();
-                    const elementsWithDistance = cluster.elements.map(element => ({
-                        element,
-                        cluster,
-                        distance: this.calculateDistance(element.data, centroid)
-                    }));
+    return {
+      data: knnData,
+      categoricalMappings: Object.fromEntries(this.categoricalMappings),
+    };
+  }
 
-                    // Filtrar elementos distantes do limiar
-                    const distant = elementsWithDistance
-                        .filter(item => item.distance > this.distanceThreshold)
-                        .sort((a, b) => b.distance - a.distance);
+  updateDisplay() {
+    this.displayClusters();
+    this.updateStatistics();
+  }
 
-                    distantElements.push(...distant);
-                }
+  displayClusters() {
+    const container = document.getElementById("clustersContainer");
+    container.innerHTML = "";
 
-                return distantElements.slice(0, this.kDistantElements);
-            }
+    for (const cluster of this.clusters) {
+      if (cluster.elements.length === 0) continue;
 
-            createNewCluster(distantElements) {
-                if (distantElements.length === 0) return;
+      const clusterDiv = document.createElement("div");
+      clusterDiv.className = `cluster cluster-${cluster.id % 5}`;
 
-                const newCluster = new Cluster(this.clusters.length);
-                
-                // Remover elementos de seus clusters originais
-                for (const item of distantElements) {
-                    item.cluster.removeElement(item.element);
-                    newCluster.addElement(item.element);
-                }
-
-                this.clusters.push(newCluster);
-                this.log(`Novo cluster ${newCluster.id} criado com ${distantElements.length} elementos distantes`, 'warning');
-                
-                // Reorganizar todos os clusters
-                this.recalculateAllCentroids();
-                this.updateDisplay();
-            }
-
-            // Reorganização manual de clusters
-            reorganizeClusters() {
-                let changes = true;
-                let iterations = 0;
-                const maxIterations = 100;
-
-                while (changes && iterations < maxIterations) {
-                    changes = false;
-                    iterations++;
-
-                    // Para cada elemento, verificar se deve ser movido para outro cluster
-                    for (const cluster of this.clusters) {
-                        const elementsToMove = [];
-                        
-                        for (const element of [...cluster.elements]) {
-                            let minDistance = Infinity;
-                            let targetCluster = cluster;
-
-                            // Calcular distância para todos os clusters
-                            for (const otherCluster of this.clusters) {
-                                if (otherCluster.elements.length === 0) continue;
-                                
-                                const distance = this.calculateDistance(element.data, otherCluster.getCentroid());
-                                if (distance < minDistance) {
-                                    minDistance = distance;
-                                    targetCluster = otherCluster;
-                                }
-                            }
-
-                            if (targetCluster !== cluster) {
-                                elementsToMove.push({ element, targetCluster });
-                                changes = true;
-                            }
-                        }
-
-                        // Mover elementos
-                        for (const move of elementsToMove) {
-                            cluster.removeElement(move.element);
-                            move.targetCluster.addElement(move.element);
-                        }
-                    }
-
-                    this.recalculateAllCentroids();
-                }
-
-                this.log(`Reorganização concluída em ${iterations} iterações`, 'success');
-                this.updateDisplay();
-            }
-
-            // Adequação para KNN
-            convertCategoricalToNumeric(categoricalData) {
-                const numericData = [];
-                
-                for (const category of categoricalData) {
-                    if (!this.categoricalMappings.has(category)) {
-                        this.categoricalMappings.set(category, this.nextCategoryValue++);
-                    }
-                    numericData.push(this.categoricalMappings.get(category));
-                }
-                
-                return numericData;
-            }
-
-            prepareForKNN() {
-                const knnData = [];
-                
-                for (const cluster of this.clusters) {
-                    for (const element of cluster.elements) {
-                        knnData.push({
-                            id: element.id,
-                            features: element.data,
-                            cluster: cluster.id,
-                            isNumeric: element.isNumeric,
-                            originalData: element.originalData
-                        });
-                    }
-                }
-
-                this.log(`Dados preparados para KNN: ${knnData.length} elementos`, 'success');
-                console.log('Dados KNN:', knnData);
-                console.log('Mapeamentos categóricos:', Object.fromEntries(this.categoricalMappings));
-                
-                return {
-                    data: knnData,
-                    categoricalMappings: Object.fromEntries(this.categoricalMappings)
-                };
-            }
-
-            // Funções auxiliares
-            updateDisplay() {
-                this.displayClusters();
-                this.updateStatistics();
-            }
-
-            displayClusters() {
-                const container = document.getElementById('clustersContainer');
-                container.innerHTML = '';
-
-                for (const cluster of this.clusters) {
-                    if (cluster.elements.length === 0) continue;
-
-                    const clusterDiv = document.createElement('div');
-                    clusterDiv.className = `cluster cluster-${cluster.id % 5}`;
-                    
-                    const centroid = cluster.getCentroid();
-                    clusterDiv.innerHTML = `
-                        <h3>Cluster ${cluster.id} (${cluster.elements.length} elementos)</h3>
-                        <p><strong>Centróide:</strong> [${centroid.map(v => v.toFixed(2)).join(', ')}]</p>
+      const centroid = cluster.getCentroid();
+      clusterDiv.innerHTML = `
+                        <h3>Cluster ${cluster.id} (${
+        cluster.elements.length
+      } elementos)</h3>
+                        <p><strong>Centróide:</strong> [${centroid
+                          .map((v) => v.toFixed(2))
+                          .join(", ")}]</p>
                         <div class="elements">
-                            ${cluster.elements.map(element => 
-                                `<span class="element ${element.isCentroid ? 'centroid' : ''}">
-                                    ${element.id}: [${element.data.map(v => v.toFixed(2)).join(', ')}]
-                                    ${element.originalData ? `<br><small>Original: ${element.originalData.join(', ')}</small>` : ''}
+                            ${cluster.elements
+                              .map(
+                                (element) =>
+                                  `<span class="element ${
+                                    element.isCentroid ? "centroid" : ""
+                                  }">
+                                    ${element.id}: [${element.data
+                                    .map((v) => v.toFixed(2))
+                                    .join(", ")}]
+                                    ${
+                                      element.originalData
+                                        ? `<br><small>Original: ${element.originalData.join(
+                                            ", "
+                                          )}</small>`
+                                        : ""
+                                    }
                                 </span>`
-                            ).join('')}
+                              )
+                              .join("")}
                         </div>
                     `;
-                    
-                    container.appendChild(clusterDiv);
-                }
-            }
 
-            updateStatistics() {
-                const totalElements = this.clusters.reduce((sum, cluster) => sum + cluster.elements.length, 0);
-                const activeClusters = this.clusters.filter(cluster => cluster.elements.length > 0).length;
-                
-                let totalDistance = 0;
-                let distanceCount = 0;
-                
-                for (const cluster of this.clusters) {
-                    if (cluster.elements.length > 0) {
-                        const centroid = cluster.getCentroid();
-                        for (const element of cluster.elements) {
-                            totalDistance += this.calculateDistance(element.data, centroid);
-                            distanceCount++;
-                        }
-                    }
-                }
-                
-                const avgDistance = distanceCount > 0 ? totalDistance / distanceCount : 0;
+      container.appendChild(clusterDiv);
+    }
+  }
 
-                document.getElementById('totalElements').textContent = totalElements;
-                document.getElementById('totalClusters').textContent = activeClusters;
-                document.getElementById('avgDistance').textContent = avgDistance.toFixed(2);
-            }
+  updateStatistics() {
+    const totalElements = this.clusters.reduce(
+      (sum, cluster) => sum + cluster.elements.length,
+      0
+    );
+    const activeClusters = this.clusters.filter(
+      (cluster) => cluster.elements.length > 0
+    ).length;
 
-            log(message, type = 'info') {
-                const logContainer = document.getElementById('operationLog');
-                const timestamp = new Date().toLocaleTimeString();
-                const logEntry = document.createElement('div');
-                logEntry.className = `log-entry log-${type}`;
-                logEntry.textContent = `[${timestamp}] ${message}`;
-                logContainer.appendChild(logEntry);
-                logContainer.scrollTop = logContainer.scrollHeight;
-            }
+    let totalDistance = 0;
+    let distanceCount = 0;
 
-            clearAll() {
-                this.clusters = [];
-                this.nextElementId = 1;
-                this.categoricalMappings.clear();
-                this.nextCategoryValue = 1;
-                this.initializeClusters();
-                this.updateDisplay();
-                document.getElementById('operationLog').innerHTML = '';
-                this.log('Sistema resetado', 'info');
-            }
+    for (const cluster of this.clusters) {
+      if (cluster.elements.length > 0) {
+        const centroid = cluster.getCentroid();
+        for (const element of cluster.elements) {
+          totalDistance += this.calculateDistance(element.data, centroid);
+          distanceCount++;
         }
+      }
+    }
 
-        // Classe Cluster
-        class Cluster {
-            constructor(id) {
-                this.id = id;
-                this.elements = [];
-                this.centroid = null;
-            }
+    const avgDistance = distanceCount > 0 ? totalDistance / distanceCount : 0;
 
-            addElement(element) {
-                this.elements.push(element);
-                this.updateCentroid();
-            }
+    document.getElementById("totalElements").textContent = totalElements;
+    document.getElementById("totalClusters").textContent = activeClusters;
+    document.getElementById("avgDistance").textContent = avgDistance.toFixed(2);
+  }
 
-            removeElement(element) {
-                const index = this.elements.findIndex(e => e.id === element.id);
-                if (index !== -1) {
-                    this.elements.splice(index, 1);
-                    this.updateCentroid();
-                    return true;
-                }
-                return false;
-            }
+  log(message, type = "info") {
+    const logContainer = document.getElementById("operationLog");
+    const timestamp = new Date().toLocaleTimeString();
+    const logEntry = document.createElement("div");
+    logEntry.className = `log-entry log-${type}`;
+    logEntry.textContent = `[${timestamp}] ${message}`;
+    logContainer.appendChild(logEntry);
+    logContainer.scrollTop = logContainer.scrollHeight;
+  }
 
-            updateCentroid() {
-                if (this.elements.length === 0) {
-                    this.centroid = null;
-                    return;
-                }
+  clearAll() {
+    this.clusters = [];
+    this.nextElementId = 1;
+    this.categoricalMappings.clear();
+    this.nextCategoryValue = 1;
+    this.initializeClusters();
+    this.updateDisplay();
+    document.getElementById("operationLog").innerHTML = "";
+    this.log("Sistema resetado", "info");
+  }
+}
 
-                const dimensions = this.elements[0].data.length;
-                const newCentroid = new Array(dimensions).fill(0);
+class Cluster {
+  constructor(id) {
+    this.id = id;
+    this.elements = [];
+    this.centroid = null;
+  }
 
-                // Calcular média de cada dimensão
-                for (const element of this.elements) {
-                    for (let i = 0; i < dimensions; i++) {
-                        newCentroid[i] += element.data[i];
-                    }
-                }
+  addElement(element) {
+    this.elements.push(element);
+    this.updateCentroid();
+  }
 
-                for (let i = 0; i < dimensions; i++) {
-                    newCentroid[i] /= this.elements.length;
-                }
+  removeElement(element) {
+    const index = this.elements.findIndex((e) => e.id === element.id);
+    if (index !== -1) {
+      this.elements.splice(index, 1);
+      this.updateCentroid();
+      return true;
+    }
+    return false;
+  }
 
-                this.centroid = newCentroid;
+  updateCentroid() {
+    if (this.elements.length === 0) {
+      this.centroid = null;
+      return;
+    }
 
-                // Marcar elemento mais próximo do centróide como centróide
-                this.updateCentroidMarker();
-            }
+    const dimensions = this.elements[0].data.length;
+    const newCentroid = new Array(dimensions).fill(0);
 
-            updateCentroidMarker() {
-                // Limpar marcadores anteriores
-                for (const element of this.elements) {
-                    element.isCentroid = false;
-                }
+    for (const element of this.elements) {
+      for (let i = 0; i < dimensions; i++) {
+        newCentroid[i] += element.data[i];
+      }
+    }
 
-                if (this.elements.length === 0 || !this.centroid) return;
+    for (let i = 0; i < dimensions; i++) {
+      newCentroid[i] /= this.elements.length;
+    }
 
-                // Encontrar elemento mais próximo do centróide
-                let minDistance = Infinity;
-                let closestElement = null;
+    this.centroid = newCentroid;
 
-                for (const element of this.elements) {
-                    const distance = this.calculateDistance(element.data, this.centroid);
-                    if (distance < minDistance) {
-                        minDistance = distance;
-                        closestElement = element;
-                    }
-                }
+    this.updateCentroidMarker();
+  }
 
-                if (closestElement) {
-                    closestElement.isCentroid = true;
-                }
-            }
+  updateCentroidMarker() {
+    for (const element of this.elements) {
+      element.isCentroid = false;
+    }
 
-            getCentroid() {
-                return this.centroid || [];
-            }
+    if (this.elements.length === 0 || !this.centroid) return;
 
-            calculateDistance(point1, point2) {
-                if (point1.length !== point2.length) return Infinity;
-                
-                let sum = 0;
-                for (let i = 0; i < point1.length; i++) {
-                    sum += Math.pow(point1[i] - point2[i], 2);
-                }
-                return Math.sqrt(sum);
-            }
-        }
+    let minDistance = Infinity;
+    let closestElement = null;
 
-        // Classe Element
-        class Element {
-            constructor(id, data, isNumeric = true, originalData = null) {
-                this.id = id;
-                this.data = [...data]; // Cópia dos dados
-                this.isNumeric = isNumeric;
-                this.originalData = originalData ? [...originalData] : null;
-                this.isCentroid = false;
-            }
-        }
+    for (const element of this.elements) {
+      const distance = this.calculateDistance(element.data, this.centroid);
+      if (distance < minDistance) {
+        minDistance = distance;
+        closestElement = element;
+      }
+    }
 
-        // Instância global do sistema
-        const clusteringSystem = new ClusteringSystem();
+    if (closestElement) {
+      closestElement.isCentroid = true;
+    }
+  }
 
-        // Funções da interface
-        function addNumericElement() {
-            const input = document.getElementById('numericInput');
-            const values = input.value.split(',').map(v => parseFloat(v.trim())).filter(v => !isNaN(v));
-            
-            if (values.length === 0) {
-                alert('Por favor, insira valores numéricos válidos separados por vírgula');
-                return;
-            }
+  getCentroid() {
+    return this.centroid || [];
+  }
 
-            clusteringSystem.addElement(values, true);
-            input.value = '';
-        }
+  calculateDistance(point1, point2) {
+    if (point1.length !== point2.length) return Infinity;
 
-        function addCategoricalElement() {
-            const input = document.getElementById('categoricalInput');
-            const values = input.value.split(',').map(v => v.trim()).filter(v => v.length > 0);
-            
-            if (values.length === 0) {
-                alert('Por favor, insira valores categóricos válidos separados por vírgula');
-                return;
-            }
+    let sum = 0;
+    for (let i = 0; i < point1.length; i++) {
+      sum += Math.pow(point1[i] - point2[i], 2);
+    }
+    return Math.sqrt(sum);
+  }
+}
 
-            const numericValues = clusteringSystem.convertCategoricalToNumeric(values);
-            clusteringSystem.addElement(numericValues, false, values);
-            input.value = '';
-        }
+class Element {
+  constructor(id, data, isNumeric = true, originalData = null) {
+    this.id = id;
+    this.data = [...data];
+    this.isNumeric = isNumeric;
+    this.originalData = originalData ? [...originalData] : null;
+    this.isCentroid = false;
+  }
+}
 
-        function updateThreshold() {
-            const threshold = parseFloat(document.getElementById('thresholdInput').value);
-            if (threshold > 0) {
-                clusteringSystem.distanceThreshold = threshold;
-                clusteringSystem.log(`Limiar atualizado para ${threshold}`, 'info');
-            }
-        }
+const clusteringSystem = new ClusteringSystem();
 
-        function updateK() {
-            const k = parseInt(document.getElementById('kInput').value);
-            if (k > 0) {
-                clusteringSystem.kDistantElements = k;
-                clusteringSystem.log(`Número de elementos distantes atualizado para ${k}`, 'info');
-            }
-        }
+function addNumericElement() {
+  const input = document.getElementById("numericInput");
+  const values = input.value
+    .split(",")
+    .map((v) => parseFloat(v.trim()))
+    .filter((v) => !isNaN(v));
 
-        function reorganizeClusters() {
-            clusteringSystem.reorganizeClusters();
-        }
+  if (values.length === 0) {
+    alert("Por favor, insira valores numéricos válidos separados por vírgula");
+    return;
+  }
 
-        function clearAll() {
-            if (confirm('Tem certeza que deseja limpar todos os dados?')) {
-                clusteringSystem.clearAll();
-            }
-        }
+  clusteringSystem.addElement(values, true);
+  input.value = "";
+}
 
-        function prepareForKNN() {
-            const knnData = clusteringSystem.prepareForKNN();
-            alert(`Dados preparados para KNN! Verifique o console para detalhes.\nTotal de elementos: ${knnData.data.length}\nMapeamentos categóricos: ${Object.keys(knnData.categoricalMappings).length}`);
-        }
+function addCategoricalElement() {
+  const input = document.getElementById("categoricalInput");
+  const values = input.value
+    .split(",")
+    .map((v) => v.trim())
+    .filter((v) => v.length > 0);
 
-        // Inicializar display
-        clusteringSystem.updateDisplay();
+  if (values.length === 0) {
+    alert(
+      "Por favor, insira valores categóricos válidos separados por vírgula"
+    );
+    return;
+  }
+
+  const numericValues = clusteringSystem.convertCategoricalToNumeric(values);
+  clusteringSystem.addElement(numericValues, false, values);
+  input.value = "";
+}
+
+function updateThreshold() {
+  const threshold = parseFloat(document.getElementById("thresholdInput").value);
+  if (threshold > 0) {
+    clusteringSystem.distanceThreshold = threshold;
+    clusteringSystem.log(`Limiar atualizado para ${threshold}`, "info");
+  }
+}
+
+function updateK() {
+  const k = parseInt(document.getElementById("kInput").value);
+  if (k > 0) {
+    clusteringSystem.kDistantElements = k;
+    clusteringSystem.log(
+      `Número de elementos distantes atualizado para ${k}`,
+      "info"
+    );
+  }
+}
+
+function reorganizeClusters() {
+  clusteringSystem.reorganizeClusters();
+}
+
+function clearAll() {
+  if (confirm("Tem certeza que deseja limpar todos os dados?")) {
+    clusteringSystem.clearAll();
+  }
+}
+
+function prepareForKNN() {
+  const knnData = clusteringSystem.prepareForKNN();
+  alert(
+    `Dados preparados para KNN! Verifique o console para detalhes.\nTotal de elementos: ${
+      knnData.data.length
+    }\nMapeamentos categóricos: ${
+      Object.keys(knnData.categoricalMappings).length
+    }`
+  );
+}
+
+clusteringSystem.updateDisplay();
